@@ -21,6 +21,8 @@ Full-stack Next.js 15 (App Router) wall dashboard for an iPad, deployed to Verce
 
 **Env vars:** `TZ_NAME`, `NEXT_PUBLIC_TZ_NAME`, `WEATHER_LAT`, `WEATHER_LON`, `ICS_URLS`, `ICS_LABELS`, `ICS_COLORS` (optional), `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `DASHBOARD_PASSWORD`
 
+**Design system:** Almanac — editorial serif aesthetic, Day/Night themes using OKLCH color tokens, three font families: Cormorant Garamond (display/clock), Spectral (text), JetBrains Mono (labels). Design source: `claude.ai/design` project `97c49ab9-f496-4115-a92e-4d1dc24642c2`, file `ui_kits/dashboard/index.html`. Theme persisted in `localStorage` under key `almanac-theme`; default `night`. `data-theme` attr on `<html>` drives CSS variables.
+
 **Architecture decisions:**
 - v1 scope: no AQI, no Notes strip (user's choice)
 - Calendar colors: auto-palette + optional `ICS_COLORS` env var override

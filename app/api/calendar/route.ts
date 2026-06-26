@@ -21,7 +21,7 @@ export async function GET() {
 
   const windowStart = new Date()
   windowStart.setHours(0, 0, 0, 0)
-  const windowEnd = new Date(windowStart.getTime() + 28 * 24 * 60 * 60 * 1000)
+  const windowEnd = new Date(windowStart.getTime() + 60 * 24 * 60 * 60 * 1000)
 
   const allEvents: CalendarEvent[] = []
 
