@@ -37,7 +37,7 @@ export async function GET() {
 
         for (const key of Object.keys(parsed)) {
           const component = parsed[key]
-          if (component.type !== 'VEVENT') continue
+          if (!component || component.type !== 'VEVENT') continue
           const event = component as VEvent
 
           if (event.rrule) {
