@@ -55,7 +55,8 @@ export async function GET() {
               if (event.exdate?.[dateKey]) continue
 
               const override = event.recurrences?.[dateKey]
-              const title = override?.summary ?? event.summary ?? 'Untitled'
+              const rawTitle = override?.summary ?? event.summary
+              const title = typeof rawTitle === 'string' ? rawTitle : rawTitle.val
               const baseDuration =
                 event.end && event.start
                   ? (event.end as Date).getTime() - (event.start as Date).getTime()
@@ -79,7 +80,7 @@ export async function GET() {
             if (start <= windowEnd && end >= windowStart) {
               allEvents.push({
                 id: event.uid ?? key,
-                title: event.summary ?? 'Untitled',
+                title: typeof event.summary === 'string' ? event.summary : event.summary.val,
                 start: start.toISOString(),
                 end: end.toISOString(),
                 allDay: isAllDay(start),
