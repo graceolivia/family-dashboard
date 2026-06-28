@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import type { CSSProperties } from 'react'
-import type { CalendarEvent, WeatherData, GroceryItem } from '@/types'
+import type { CalendarEvent, WeatherData, GroceryItem, MealPlan } from '@/types'
 
 const TZ = process.env.NEXT_PUBLIC_TZ_NAME ?? 'America/New_York'
 type Theme = 'day' | 'night'
@@ -334,22 +334,179 @@ function ThemeToggle({ theme, onChange }: { theme: Theme; onChange: (t: Theme) =
 }
 
 // ─────────────────────────────────────────────────────────────
-// Dinner edit modal
+// Weekly dinner editor — pop-out modal
 // ─────────────────────────────────────────────────────────────
-function DinnerModal({ current, onSave, onClose }: { current: string; onSave: (m: string) => void; onClose: () => void }) {
-  const [value, setValue] = useState(current)
+const WEEKDAY_ROWS: { key: string; label: string }[] = [
+  { key: 'monday',    label: 'Mon' },
+  { key: 'tuesday',  label: 'Tue' },
+  { key: 'wednesday',label: 'Wed' },
+  { key: 'thursday', label: 'Thu' },
+  { key: 'friday',   label: 'Fri' },
+]
+
+function WeekdayEditRow({
+  label, defaultValue, isToday, saving, saved, onSave,
+}: {
+  label: string; defaultValue: string; isToday: boolean
+  saving: boolean; saved: boolean; onSave: (meal: string) => void
+}) {
+  const [value, setValue] = useState(defaultValue)
+  const [focused, setFocused] = useState(false)
+
+  useEffect(() => { setValue(defaultValue) }, [defaultValue])
+
+  const commit = () => {
+    setFocused(false)
+    if (value.trim() !== defaultValue) onSave(value.trim())
+  }
+
+  const rowStyle: CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
+    padding: 'var(--space-2) var(--space-3)', borderRadius: 'var(--radius-md)',
+    background: isToday ? 'var(--fill)' : 'transparent',
+  }
+  const labelStyle: CSSProperties = {
+    width: 44, flexShrink: 0, fontFamily: 'var(--font-mono)',
+    fontSize: 'var(--t-label)', letterSpacing: 'var(--track-cap)', textTransform: 'uppercase',
+    color: isToday ? 'var(--ink)' : 'var(--ink-3)',
+  }
+  const inputStyle: CSSProperties = {
+    flex: 1, background: focused ? 'var(--fill)' : 'transparent',
+    border: focused ? 'var(--border-strong)' : '1px solid transparent',
+    borderRadius: 'var(--radius-sm)', padding: 'var(--space-2) var(--space-3)',
+    fontFamily: 'var(--font-text)', fontSize: 'var(--t-body)', color: 'var(--ink)',
+    outline: 'none', transition: 'border-color 0.15s, background 0.15s',
+  }
+  const statusStyle: CSSProperties = {
+    width: 20, textAlign: 'center', fontFamily: 'var(--font-mono)',
+    fontSize: 'var(--t-label)', flexShrink: 0,
+    color: saving ? 'var(--ink-3)' : saved ? 'oklch(0.55 0.15 145)' : 'transparent',
+  }
+
+  return (
+    <div style={rowStyle}>
+      <span style={labelStyle}>
+        {label}
+        {isToday && <span style={{ display: 'block', fontSize: '0.75em', letterSpacing: 0, marginTop: 1 }}>today</span>}
+      </span>
+      <input
+        type="text" value={value} placeholder="Not set"
+        onChange={e => setValue(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+        style={inputStyle}
+      />
+      <span style={statusStyle}>{saving ? '…' : '✓'}</span>
+    </div>
+  )
+}
+
+function WeeklyMealEditor({
+  mealPlan, todayStr, todayDayName, onClose, onRefresh,
+}: {
+  mealPlan: MealPlan; todayStr: string; todayDayName: string
+  onClose: () => void; onRefresh: () => void
+}) {
+  const [saving, setSaving] = useState<string | null>(null)
+  const [saved, setSaved] = useState<string | null>(null)
+  const todayOverride = mealPlan.mealOverrides[todayStr] ?? ''
+  const [override, setOverride] = useState(todayOverride)
+  const [overrideSaving, setOverrideSaving] = useState(false)
+  const [overrideSaved, setOverrideSaved] = useState(false)
+  const hasExistingOverride = Boolean(mealPlan.mealOverrides[todayStr])
+
+  const saveDefault = async (weekday: string, meal: string) => {
+    setSaving(weekday); setSaved(null)
+    await fetch('/api/meals', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'default', weekday, meal }),
+    })
+    setSaving(null); setSaved(weekday)
+    setTimeout(() => setSaved((s: string | null) => s === weekday ? null : s), 1500)
+    onRefresh()
+  }
+
+  const saveOverride = async () => {
+    if (!override.trim()) return
+    setOverrideSaving(true)
+    await fetch('/api/meals', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'override', date: todayStr, meal: override.trim() }),
+    })
+    setOverrideSaving(false); setOverrideSaved(true)
+    setTimeout(() => setOverrideSaved(false), 1500)
+    onRefresh()
+  }
+
+  const clearOverride = async () => {
+    await fetch(`/api/meals?date=${todayStr}`, { method: 'DELETE' })
+    setOverride(''); onRefresh()
+  }
+
+  const modal: CSSProperties = {
+    background: 'var(--card)', border: 'var(--border-strong)', borderRadius: 'var(--radius-lg)',
+    padding: 'var(--space-7)', width: 460, boxShadow: 'var(--shadow-pop)', maxHeight: '90vh', overflowY: 'auto',
+  }
+  const monoLabel: CSSProperties = {
+    fontFamily: 'var(--font-mono)', fontSize: 'var(--t-label)', letterSpacing: 'var(--track-label)',
+    textTransform: 'uppercase', color: 'var(--ink-3)',
+  }
+
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'oklch(0 0 0 / 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-      <div onClick={e => e.stopPropagation()}
-        style={{ background: 'var(--card)', border: 'var(--border-strong)', borderRadius: 'var(--radius-lg)', padding: 'var(--space-7)', width: 420, boxShadow: 'var(--shadow-pop)' }}>
-        <div style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-h2)', marginBottom: 'var(--space-5)' }}>Tonight's dinner</div>
-        <input autoFocus type="text" value={value} onChange={e => setValue(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') onSave(value.trim()); if (e.key === 'Escape') onClose() }}
-          placeholder="What's for dinner?"
-          style={{ width: '100%', background: 'var(--fill)', border: 'var(--border-strong)', borderRadius: 'var(--radius-md)', padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-text)', fontSize: 'var(--t-body)', color: 'var(--ink)', outline: 'none' }} />
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)', marginTop: 'var(--space-5)' }}>
-          <button onClick={onClose} style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-label)', letterSpacing: 'var(--track-cap)', textTransform: 'uppercase', padding: 'var(--space-2) var(--space-4)', background: 'transparent', border: 'none', color: 'var(--ink-3)', cursor: 'pointer' }}>Cancel</button>
-          <button onClick={() => onSave(value.trim())} style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-label)', letterSpacing: 'var(--track-cap)', textTransform: 'uppercase', padding: 'var(--space-2) var(--space-4)', background: 'var(--invert-bg)', color: 'var(--invert-fg)', border: 'none', borderRadius: 'var(--radius-md)', cursor: 'pointer' }}>Save</button>
+      <div onClick={e => e.stopPropagation()} style={modal}>
+
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-h2)', marginBottom: 'var(--space-6)' }}>
+          Dinner schedule
+        </div>
+
+        {/* M–F weekly defaults */}
+        <div style={{ ...monoLabel, marginBottom: 'var(--space-3)' }}>Weekly rotation</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', marginBottom: 'var(--space-6)' }}>
+          {WEEKDAY_ROWS.map(({ key, label }) => (
+            <WeekdayEditRow
+              key={key}
+              label={label}
+              defaultValue={mealPlan.defaultMeals[key] ?? ''}
+              isToday={key === todayDayName}
+              saving={saving === key}
+              saved={saved === key}
+              onSave={meal => saveDefault(key, meal)}
+            />
+          ))}
+        </div>
+
+        <hr style={{ border: 0, borderTop: '1px solid var(--line)', margin: `0 0 var(--space-5)` }} />
+
+        {/* Tonight-only override */}
+        <div style={{ ...monoLabel, marginBottom: 'var(--space-3)' }}>Tonight only</div>
+        <div style={{ display: 'flex', gap: 'var(--space-3)', marginBottom: 'var(--space-6)' }}>
+          <input
+            type="text" value={override} placeholder="Override tonight's dinner…"
+            onChange={e => setOverride(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') saveOverride() }}
+            style={{ flex: 1, background: 'var(--fill)', border: 'var(--border-strong)', borderRadius: 'var(--radius-md)', padding: 'var(--space-3) var(--space-4)', fontFamily: 'var(--font-text)', fontSize: 'var(--t-body)', color: 'var(--ink)', outline: 'none' }}
+          />
+          <button
+            onClick={saveOverride}
+            disabled={!override.trim() || overrideSaving}
+            style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-label)', letterSpacing: 'var(--track-cap)', textTransform: 'uppercase', padding: 'var(--space-2) var(--space-4)', background: 'var(--invert-bg)', color: 'var(--invert-fg)', border: 'none', borderRadius: 'var(--radius-md)', cursor: 'pointer', opacity: !override.trim() || overrideSaving ? 0.4 : 1 }}>
+            {overrideSaved ? 'Saved' : 'Set'}
+          </button>
+          {hasExistingOverride && (
+            <button
+              onClick={clearOverride}
+              style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-label)', letterSpacing: 'var(--track-cap)', textTransform: 'uppercase', padding: 'var(--space-2) var(--space-4)', background: 'transparent', border: 'none', color: 'var(--ink-3)', cursor: 'pointer' }}>
+              Clear
+            </button>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-label)', letterSpacing: 'var(--track-cap)', textTransform: 'uppercase', padding: 'var(--space-2) var(--space-4)', background: 'transparent', border: 'none', color: 'var(--ink-3)', cursor: 'pointer' }}>
+            Close
+          </button>
         </div>
       </div>
     </div>
@@ -364,6 +521,7 @@ export default function DisplayClient() {
   const [weather, setWeather] = useState<WeatherData | null>(null)
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [dinner, setDinner] = useState('')
+  const [mealPlan, setMealPlan] = useState<MealPlan | null>(null)
   const [grocery, setGrocery] = useState<GroceryItem[]>([])
   const [editingDinner, setEditingDinner] = useState(false)
   const [theme, setTheme] = useState<Theme>('night')
@@ -413,7 +571,10 @@ export default function DisplayClient() {
     try { const r = await fetch('/api/calendar'); if (r.ok) { const d = await r.json(); setEvents(d.events ?? []) } } catch { /* no-op */ }
   }, [])
   const fetchMeals = useCallback(async () => {
-    try { const r = await fetch('/api/meals'); if (r.ok) { const d = await r.json(); setDinner(d.today ?? '') } } catch { /* no-op */ }
+    try {
+      const r = await fetch('/api/meals')
+      if (r.ok) { const d = await r.json(); setMealPlan(d); setDinner(d.today ?? '') }
+    } catch { /* no-op */ }
   }, [])
   const fetchGrocery = useCallback(async () => {
     try { const r = await fetch('/api/grocery'); if (r.ok) setGrocery(await r.json()) } catch { /* no-op */ }
@@ -429,6 +590,7 @@ export default function DisplayClient() {
   }, [fetchWeather, fetchCalendar, fetchMeals, fetchGrocery])
 
   const todayStr = now.toLocaleDateString('en-CA', { timeZone: TZ })
+  const todayDayName = now.toLocaleDateString('en-US', { weekday: 'long', timeZone: TZ }).toLowerCase()
   const todayEvents = events
     .filter(e => new Date(e.start).toLocaleDateString('en-CA', { timeZone: TZ }) === todayStr)
     .sort((a, b) => {
@@ -440,10 +602,6 @@ export default function DisplayClient() {
   const todayDate = new Date(todayStr + 'T12:00:00')
   const viewDate = new Date(todayDate.getFullYear(), todayDate.getMonth() + monthOffset, 1)
 
-  const saveDinner = async (meal: string) => {
-    setEditingDinner(false); setDinner(meal)
-    await fetch('/api/meals', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'override', date: todayStr, meal }) })
-  }
   const toggleGrocery = async (id: string, checked: boolean) => {
     setGrocery(prev => prev.map(i => i.id === id ? { ...i, checked } : i))
     await fetch('/api/grocery', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, checked }) })
@@ -492,7 +650,15 @@ export default function DisplayClient() {
         </div>
       </main>
 
-      {editingDinner && <DinnerModal current={dinner} onSave={saveDinner} onClose={() => setEditingDinner(false)} />}
+      {editingDinner && mealPlan && (
+        <WeeklyMealEditor
+          mealPlan={mealPlan}
+          todayStr={todayStr}
+          todayDayName={todayDayName}
+          onClose={() => setEditingDinner(false)}
+          onRefresh={fetchMeals}
+        />
+      )}
     </div>
   )
 }
