@@ -20,7 +20,7 @@ export async function GET() {
       'sunrise',
       'sunset',
     ].join(','),
-    hourly: 'precipitation_probability',
+    hourly: 'precipitation_probability,temperature_2m',
   })
 
   const res = await fetch(
@@ -57,12 +57,38 @@ export async function GET() {
 
   const hourlyTimes: string[] = data.hourly.time
   const hourlyPrecip: number[] = data.hourly.precipitation_probability
-  let precipHour: string | null = null
+  const hourlyTemp: number[] = data.hourly.temperature_2m
 
-  for (let i = 0; i < hourlyTimes.length; i++) {
-    if (localHour(hourlyTimes[i]) >= nowHour && hourlyPrecip[i] >= 60) {
+  // Today's date prefix (first 10 chars of the first hourly time)
+  const todayPrefix = hourlyTimes[0]?.slice(0, 10) ?? ''
+
+  // Find today's indices
+  const todayIndices = hourlyTimes
+    .map((t, i) => ({ i, t }))
+    .filter(({ t }) => t.startsWith(todayPrefix))
+    .map(({ i }) => i)
+
+  // Hour of daily high temperature
+  let highHour: string | null = null
+  let highTemp = -Infinity
+  for (const i of todayIndices) {
+    if (hourlyTemp[i] > highTemp) { highTemp = hourlyTemp[i]; highHour = formatLocalTime(hourlyTimes[i]) }
+  }
+
+  // Hour of daily low temperature (among today's hours from now onward, prefer morning)
+  let lowHour: string | null = null
+  let lowTemp = Infinity
+  for (const i of todayIndices) {
+    if (hourlyTemp[i] < lowTemp) { lowTemp = hourlyTemp[i]; lowHour = formatLocalTime(hourlyTimes[i]) }
+  }
+
+  // Hour with peak precipitation chance today (remaining hours)
+  let precipHour: string | null = null
+  let precipMax = 0
+  for (const i of todayIndices) {
+    if (localHour(hourlyTimes[i]) >= nowHour && hourlyPrecip[i] > precipMax) {
+      precipMax = hourlyPrecip[i]
       precipHour = formatLocalTime(hourlyTimes[i])
-      break
     }
   }
 
@@ -78,7 +104,9 @@ export async function GET() {
     },
     today: {
       high: Math.round(data.daily.temperature_2m_max?.[0] ?? 0),
+      highHour,
       low: Math.round(data.daily.temperature_2m_min?.[0] ?? 0),
+      lowHour,
       precipChance: data.daily.precipitation_probability_max?.[0] ?? 0,
       precipHour,
       sunrise,
