@@ -124,8 +124,8 @@ function WeatherBar({ weather }: { weather: WeatherData | null }) {
         </div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', alignItems: 'flex-end' }}>
-        <Meta>H {weather.today.high}° · L {weather.today.low}°</Meta>
-        <Meta iconName="droplet">{weather.today.precipChance}% rain{weather.today.precipHour ? ` · ~${weather.today.precipHour}` : ''}</Meta>
+        <Meta>H {weather.today.high}°{weather.today.highHour ? ` @ ${weather.today.highHour}` : ''} · L {weather.today.low}°{weather.today.lowHour ? ` @ ${weather.today.lowHour}` : ''}</Meta>
+        <Meta iconName="droplet">{weather.today.precipChance}% rain{weather.today.precipHour ? ` @ ${weather.today.precipHour}` : ''}</Meta>
         <div style={{ display: 'flex', gap: 'var(--space-5)' }}>
           <Meta iconName="sunrise">{weather.today.sunrise}</Meta>
           <Meta iconName="sunset">{weather.today.sunset}</Meta>

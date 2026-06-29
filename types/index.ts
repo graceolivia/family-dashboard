@@ -18,11 +18,13 @@ export interface WeatherData {
   }
   today: {
     high: number
+    highHour: string | null
     low: number
+    lowHour: string | null
     precipChance: number
-    precipHour: string | null  // e.g. "3 PM" if rain expected, null otherwise
-    sunrise: string            // e.g. "5:24 AM"
-    sunset: string             // e.g. "8:35 PM"
+    precipHour: string | null
+    sunrise: string
+    sunset: string
   }
 }
 
