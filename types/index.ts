@@ -7,6 +7,7 @@ export interface CalendarEvent {
   calendarIndex: number
   calendarLabel: string
   calendarColor: string
+  location?: string
 }
 
 export interface WeatherData {

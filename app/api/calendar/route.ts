@@ -72,6 +72,7 @@ export async function GET() {
                 calendarIndex: idx,
                 calendarLabel: label,
                 calendarColor: color,
+                location: typeof event.location === 'string' ? event.location : undefined,
               })
             }
           } else if (event.start && event.end) {
@@ -87,6 +88,7 @@ export async function GET() {
                 calendarIndex: idx,
                 calendarLabel: label,
                 calendarColor: color,
+                location: typeof event.location === 'string' ? event.location : undefined,
               })
             }
           }
