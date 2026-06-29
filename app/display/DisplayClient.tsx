@@ -342,6 +342,8 @@ const WEEKDAY_ROWS: { key: string; label: string }[] = [
   { key: 'wednesday',label: 'Wed' },
   { key: 'thursday', label: 'Thu' },
   { key: 'friday',   label: 'Fri' },
+  { key: 'saturday', label: 'Sat' },
+  { key: 'sunday',   label: 'Sun' },
 ]
 
 function WeekdayEditRow({
