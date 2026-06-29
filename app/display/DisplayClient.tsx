@@ -142,6 +142,17 @@ const MONTHS = ['January','February','March','April','May','June','July','August
 const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 const WDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 
+function buildWeek(todayStr: string, weekOffset: number): Date[] {
+  const base = new Date(todayStr + 'T12:00:00')
+  const sunday = new Date(base)
+  sunday.setDate(base.getDate() - base.getDay() + weekOffset * 7)
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(sunday)
+    d.setDate(sunday.getDate() + i)
+    return d
+  })
+}
+
 function buildWeeks(year: number, month: number): Date[][] {
   const first = new Date(year, month, 1)
   const start = new Date(first)
@@ -218,7 +229,7 @@ function EventPopup({ event, onClose }: { event: CalendarEvent; onClose: () => v
 const BAR_H = 18   // px height per bar
 const BAR_GAP = 2  // px gap between bars
 const MAX_BARS = 3 // max bar rows per week
-const DAY_NUM_H = 28 // px reserved at top of cell for day number
+const DAY_NUM_H = 34 // px reserved at top of cell for day number
 
 function evDateRange(ev: CalendarEvent): { startDate: string; endDate: string } {
   const startDate = new Date(ev.start).toLocaleDateString('en-CA', { timeZone: TZ })
@@ -318,8 +329,9 @@ function CalendarWeekRow({ week, month, todayStr, events, onEventClick }: {
           {visibleBars.map(({ ev, startCol, endCol }, idx) => (
             <div key={ev.id} onClick={() => onEventClick(ev)}
               style={{ gridColumn: `${startCol + 1} / ${endCol + 2}`, gridRow: idx + 1,
-                background: ev.calendarColor, borderRadius: 3, padding: '0 6px',
-                color: 'white', fontFamily: 'var(--font-text)', fontSize: 11, lineHeight: `${BAR_H}px`,
+                background: ev.calendarColor + '1a', borderBottom: `2px solid ${ev.calendarColor}`,
+                borderRadius: 0, padding: '0 6px',
+                color: ev.calendarColor, fontFamily: 'var(--font-text)', fontSize: 11, lineHeight: `${BAR_H}px`,
                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                 cursor: 'pointer', pointerEvents: 'all' }}>
               {ev.title}
@@ -353,6 +365,165 @@ function CalendarMonth({ viewDate, todayStr, events, onEventClick }: {
         {weeks.map((week, wi) => (
           <CalendarWeekRow key={wi} week={week} month={month} todayStr={todayStr} events={events} onEventClick={onEventClick} />
         ))}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Week view (time grid)
+// ─────────────────────────────────────────────────────────────
+const WK_H_START = 7
+const WK_H_END = 22
+const WK_HOURS = WK_H_END - WK_H_START
+
+function fmtHour(h: number) {
+  if (h === 12) return '12p'
+  return h > 12 ? `${h - 12}p` : `${h}a`
+}
+
+function layoutDayEvents(evs: CalendarEvent[]) {
+  const sorted = [...evs].sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+  const laneEnds: number[] = []
+  const placed = sorted.map(ev => {
+    const startMs = new Date(ev.start).getTime()
+    const endMs = new Date(ev.end).getTime()
+    let lane = laneEnds.findIndex(e => e <= startMs)
+    if (lane === -1) lane = laneEnds.length
+    laneEnds[lane] = endMs
+    return { ev, lane }
+  })
+  const totalLanes = laneEnds.length || 1
+  return placed.map(p => ({ ...p, totalLanes }))
+}
+
+function CalendarWeek({ week, todayStr, events, onEventClick }: {
+  week: Date[]; todayStr: string; events: CalendarEvent[]
+  onEventClick: (ev: CalendarEvent) => void
+}) {
+  const weekStart = isoDate(week[0])
+  const weekEnd = isoDate(week[6])
+
+  const bars: Array<{ ev: CalendarEvent; startCol: number; endCol: number }> = []
+  const timedByDay = new Map<string, CalendarEvent[]>()
+
+  for (const ev of events) {
+    if (isMultiDay(ev) || ev.allDay) {
+      const { startDate, endDate } = evDateRange(ev)
+      if (startDate > weekEnd || endDate < weekStart) continue
+      const cs = startDate < weekStart ? weekStart : startDate
+      const ce = endDate > weekEnd ? weekEnd : endDate
+      const sc = week.findIndex(d => isoDate(d) === cs)
+      const ec = week.findIndex(d => isoDate(d) === ce)
+      bars.push({ ev, startCol: sc < 0 ? 0 : sc, endCol: ec < 0 ? 6 : ec })
+    } else {
+      const ds = new Date(ev.start).toLocaleDateString('en-CA', { timeZone: TZ })
+      if (ds >= weekStart && ds <= weekEnd) {
+        if (!timedByDay.has(ds)) timedByDay.set(ds, [])
+        timedByDay.get(ds)!.push(ev)
+      }
+    }
+  }
+
+  const hours = Array.from({ length: WK_HOURS + 1 }, (_, i) => WK_H_START + i)
+  const TIME_COL = 36
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Day headers */}
+      <div style={{ display: 'grid', gridTemplateColumns: `${TIME_COL}px repeat(7,1fr)`, borderBottom: 'var(--border)', flexShrink: 0 }}>
+        <div />
+        {week.map((day, i) => {
+          const ds = isoDate(day)
+          const isToday = ds === todayStr
+          return (
+            <div key={i} style={{ textAlign: 'center', padding: '2px 0 6px', borderLeft: 'var(--border)' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-label)', letterSpacing: 'var(--track-cap)', textTransform: 'uppercase', color: isToday ? 'var(--ink)' : 'var(--ink-3)' }}>
+                {WDAYS[day.getDay()]}
+              </div>
+              <span style={isToday
+                ? { display: 'inline-flex', width: '1.8em', height: '1.8em', alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-pill)', background: 'var(--invert-bg)', color: 'var(--invert-fg)', fontFamily: 'var(--font-display)', fontSize: 'var(--t-h3)', fontVariantNumeric: 'lining-nums' }
+                : { display: 'inline-flex', width: '1.8em', height: '1.8em', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-display)', fontSize: 'var(--t-h3)', fontVariantNumeric: 'lining-nums' }}>
+                {day.getDate()}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* All-day / multi-day bars */}
+      {bars.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: `${TIME_COL}px 1fr`, borderBottom: 'var(--border)', flexShrink: 0, padding: '3px 0' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-label)', color: 'var(--ink-3)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: 6 }}>all day</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: '2px 0', padding: '0 2px' }}>
+            {bars.map(({ ev, startCol, endCol }) => (
+              <div key={ev.id} onClick={() => onEventClick(ev)}
+                style={{ gridColumn: `${startCol + 1} / ${endCol + 2}`,
+                  background: ev.calendarColor + '1a', borderBottom: `2px solid ${ev.calendarColor}`,
+                  borderRadius: 0, padding: '1px 6px', marginBottom: 2,
+                  color: ev.calendarColor, fontFamily: 'var(--font-text)', fontSize: 11,
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' }}>
+                {ev.title}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Time grid */}
+      <div style={{ flex: 1, overflowY: 'auto', position: 'relative' }}>
+        <div style={{ height: `${WK_HOURS * 20}px`, display: 'grid', gridTemplateColumns: `${TIME_COL}px repeat(7,1fr)` }}>
+          {/* Hour labels */}
+          <div style={{ position: 'relative', borderRight: 'var(--border)' }}>
+            {hours.map(h => (
+              <div key={h} style={{ position: 'absolute', top: `${(h - WK_H_START) / WK_HOURS * 100}%`, right: 6, transform: 'translateY(-50%)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-label)', color: 'var(--ink-3)', whiteSpace: 'nowrap', userSelect: 'none' }}>
+                {fmtHour(h)}
+              </div>
+            ))}
+          </div>
+
+          {/* Day columns */}
+          {week.map((day, i) => {
+            const ds = isoDate(day)
+            const isToday = ds === todayStr
+            const placed = layoutDayEvents(timedByDay.get(ds) ?? [])
+            return (
+              <div key={i} style={{ position: 'relative', borderLeft: 'var(--border)', background: isToday ? 'var(--fill)' : 'transparent', overflow: 'hidden' }}>
+                {/* Hour lines */}
+                {hours.map(h => h > WK_H_START && (
+                  <div key={h} style={{ position: 'absolute', top: `${(h - WK_H_START) / WK_HOURS * 100}%`, left: 0, right: 0, borderTop: '1px solid var(--line)' }} />
+                ))}
+                {/* Timed events */}
+                {placed.map(({ ev, lane, totalLanes }) => {
+                  const start = new Date(ev.start)
+                  const end = new Date(ev.end)
+                  const startH = start.getHours() + start.getMinutes() / 60
+                  const endH = end.getHours() + end.getMinutes() / 60
+                  const cStart = Math.max(startH, WK_H_START)
+                  const cEnd = Math.min(endH, WK_H_END)
+                  if (cEnd <= cStart) return null
+                  const top = (cStart - WK_H_START) / WK_HOURS * 100
+                  const height = (cEnd - cStart) / WK_HOURS * 100
+                  const w = 100 / totalLanes
+                  return (
+                    <div key={ev.id} onClick={() => onEventClick(ev)}
+                      style={{ position: 'absolute', top: `${top}%`, height: `${height}%`,
+                        left: `calc(${lane * w}% + 2px)`, width: `calc(${w}% - 4px)`,
+                        background: ev.calendarColor + '1a', border: `1px solid ${ev.calendarColor}`,
+                        borderRadius: 4, padding: '2px 4px',
+                        color: ev.calendarColor, fontFamily: 'var(--font-text)', fontSize: 10,
+                        overflow: 'hidden', cursor: 'pointer' }}>
+                      <div style={{ fontWeight: 'var(--w-medium)', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.title}</div>
+                      <div style={{ opacity: 0.75, fontSize: 9, whiteSpace: 'nowrap' }}>
+                        {start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: TZ })}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })}
+        </div>
       </div>
     </div>
   )
@@ -666,7 +837,9 @@ export default function DisplayClient() {
   const [grocery, setGrocery] = useState<GroceryItem[]>([])
   const [editingDinner, setEditingDinner] = useState(false)
   const [theme, setTheme] = useState<Theme>('night')
+  const [calView, setCalView] = useState<'month' | 'week'>('week')
   const [monthOffset, setMonthOffset] = useState(0)
+  const [weekOffset, setWeekOffset] = useState(0)
   const [popupEvent, setPopupEvent] = useState<CalendarEvent | null>(null)
 
   // Sync theme from/to localStorage + html attr
@@ -743,6 +916,12 @@ export default function DisplayClient() {
 
   const todayDate = new Date(todayStr + 'T12:00:00')
   const viewDate = new Date(todayDate.getFullYear(), todayDate.getMonth() + monthOffset, 1)
+  const week = buildWeek(todayStr, weekOffset)
+  const weekFirst = week[0], weekLast = week[6]
+  const weekTitle = weekFirst.getMonth() === weekLast.getMonth()
+    ? `${MONTHS[weekFirst.getMonth()]} ${weekFirst.getDate()}–${weekLast.getDate()}`
+    : `${MONTH_SHORT[weekFirst.getMonth()]} ${weekFirst.getDate()} – ${MONTH_SHORT[weekLast.getMonth()]} ${weekLast.getDate()}`
+  const weekYear = weekLast.getFullYear()
 
   const toggleGrocery = async (id: string, checked: boolean) => {
     setGrocery(prev => prev.map(i => i.id === id ? { ...i, checked } : i))
@@ -770,25 +949,43 @@ export default function DisplayClient() {
         <WeatherBar weather={weather} />
         <Divider />
 
-        {/* Month nav + controls */}
+        {/* Calendar nav + controls */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-5)', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
-            <button aria-label="Previous month" style={navBtn} onClick={() => setMonthOffset(o => o - 1)}>
+            <button aria-label="Previous" style={navBtn} onClick={() => calView === 'month' ? setMonthOffset(o => o - 1) : setWeekOffset(o => o - 1)}>
               <Icon name="chevronLeft" size={20} />
             </button>
             <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-h1)', fontWeight: 'var(--w-regular)', margin: 0, letterSpacing: 'var(--track-tight)', whiteSpace: 'nowrap' }}>
-              {MONTHS[viewDate.getMonth()]} <span style={{ fontStyle: 'italic', color: 'var(--ink-3)' }}>{viewDate.getFullYear()}</span>
+              {calView === 'month'
+                ? <>{MONTHS[viewDate.getMonth()]} <span style={{ fontStyle: 'italic', color: 'var(--ink-3)' }}>{viewDate.getFullYear()}</span></>
+                : <>{weekTitle} <span style={{ fontStyle: 'italic', color: 'var(--ink-3)' }}>{weekYear}</span></>}
             </h1>
-            <button aria-label="Next month" style={navBtn} onClick={() => setMonthOffset(o => o + 1)}>
+            <button aria-label="Next" style={navBtn} onClick={() => calView === 'month' ? setMonthOffset(o => o + 1) : setWeekOffset(o => o + 1)}>
               <Icon name="chevronRight" size={20} />
             </button>
           </div>
-          <ThemeToggle theme={theme} onChange={applyTheme} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
+            {/* View toggle */}
+            <div style={{ display: 'flex', borderRadius: 'var(--radius-md)', border: 'var(--border)', overflow: 'hidden' }}>
+              {(['month', 'week'] as const).map(v => (
+                <button key={v} onClick={() => setCalView(v)}
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-label)', letterSpacing: 'var(--track-cap)', textTransform: 'uppercase',
+                    padding: 'var(--space-2) var(--space-4)', border: 'none', cursor: 'pointer',
+                    background: calView === v ? 'var(--invert-bg)' : 'transparent',
+                    color: calView === v ? 'var(--invert-fg)' : 'var(--ink-3)' }}>
+                  {v}
+                </button>
+              ))}
+            </div>
+            <ThemeToggle theme={theme} onChange={applyTheme} />
+          </div>
         </div>
 
         {/* Calendar grid */}
         <div style={{ flex: 1, minHeight: 0 }}>
-          <CalendarMonth viewDate={viewDate} todayStr={todayStr} events={events} onEventClick={setPopupEvent} />
+          {calView === 'month'
+            ? <CalendarMonth viewDate={viewDate} todayStr={todayStr} events={events} onEventClick={setPopupEvent} />
+            : <CalendarWeek week={week} todayStr={todayStr} events={events} onEventClick={setPopupEvent} />}
         </div>
       </main>
 
