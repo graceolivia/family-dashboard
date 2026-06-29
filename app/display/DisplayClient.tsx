@@ -161,17 +161,186 @@ function isoDate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
 
-function CalendarMonth({ viewDate, todayStr, events }: { viewDate: Date; todayStr: string; events: CalendarEvent[] }) {
+// ─────────────────────────────────────────────────────────────
+// Event detail popup
+// ─────────────────────────────────────────────────────────────
+function EventPopup({ event, onClose }: { event: CalendarEvent; onClose: () => void }) {
+  const start = new Date(event.start)
+  const end = new Date(event.end)
+  const fmtDate = (d: Date) => d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: TZ })
+  const fmtTime = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: TZ })
+
+  let dateStr: string
+  let timeStr: string
+  if (event.allDay) {
+    const endInclusive = new Date(end.getTime() - 24 * 60 * 60 * 1000)
+    const sd = start.toLocaleDateString('en-CA', { timeZone: TZ })
+    const ed = endInclusive.toLocaleDateString('en-CA', { timeZone: TZ })
+    dateStr = sd === ed ? fmtDate(start) : `${fmtDate(start)} – ${fmtDate(endInclusive)}`
+    timeStr = 'All day'
+  } else {
+    const sd = start.toLocaleDateString('en-CA', { timeZone: TZ })
+    const ed = end.toLocaleDateString('en-CA', { timeZone: TZ })
+    dateStr = sd === ed ? fmtDate(start) : `${fmtDate(start)} – ${fmtDate(end)}`
+    timeStr = `${fmtTime(start)} – ${fmtTime(end)}`
+  }
+
+  return (
+    <>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={onClose} />
+      <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 50,
+        background: 'var(--paper-2)', border: '1px solid var(--line)', borderRadius: 12,
+        boxShadow: '0 8px 40px oklch(0 0 0 / 0.45)', padding: 24, minWidth: 280, maxWidth: 420,
+        display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0 }}>
+            <span style={{ width: 12, height: 12, borderRadius: 6, background: event.calendarColor, flexShrink: 0, marginTop: 3 }} />
+            <span style={{ fontFamily: 'var(--font-text)', fontSize: 'var(--t-lead)', fontWeight: 'var(--w-medium)', color: 'var(--ink)', lineHeight: 1.3 }}>
+              {event.title}
+            </span>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-3)', fontSize: 22, lineHeight: 1, padding: '0 0 0 8px', flexShrink: 0 }}>×</button>
+        </div>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-meta)', color: 'var(--ink-2)', display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: 22 }}>
+          <span>{dateStr}</span>
+          <span>{timeStr}</span>
+          {event.location && <span style={{ color: 'var(--ink-3)' }}>{event.location}</span>}
+          <span style={{ color: 'var(--ink-3)', marginTop: 2 }}>{event.calendarLabel}</span>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Multi-day bar helpers
+// ─────────────────────────────────────────────────────────────
+const BAR_H = 18   // px height per bar
+const BAR_GAP = 2  // px gap between bars
+const MAX_BARS = 3 // max bar rows per week
+const DAY_NUM_H = 28 // px reserved at top of cell for day number
+
+function evDateRange(ev: CalendarEvent): { startDate: string; endDate: string } {
+  const startDate = new Date(ev.start).toLocaleDateString('en-CA', { timeZone: TZ })
+  if (ev.allDay) {
+    const endInclusive = new Date(new Date(ev.end).getTime() - 24 * 60 * 60 * 1000)
+    return { startDate, endDate: endInclusive.toLocaleDateString('en-CA', { timeZone: TZ }) }
+  }
+  return { startDate, endDate: new Date(ev.end).toLocaleDateString('en-CA', { timeZone: TZ }) }
+}
+
+function isMultiDay(ev: CalendarEvent): boolean {
+  const { startDate, endDate } = evDateRange(ev)
+  return endDate > startDate
+}
+
+// ─────────────────────────────────────────────────────────────
+// Week row (multi-day bars + single-day dots)
+// ─────────────────────────────────────────────────────────────
+function CalendarWeekRow({ week, month, todayStr, events, onEventClick }: {
+  week: Date[]; month: number; todayStr: string; events: CalendarEvent[]
+  onEventClick: (ev: CalendarEvent) => void
+}) {
+  const weekStart = isoDate(week[0])
+  const weekEnd = isoDate(week[6])
+
+  const bars: Array<{ ev: CalendarEvent; startCol: number; endCol: number }> = []
+  const dots = new Map<string, CalendarEvent[]>()
+
+  for (const ev of events) {
+    if (isMultiDay(ev)) {
+      const { startDate, endDate } = evDateRange(ev)
+      if (startDate > weekEnd || endDate < weekStart) continue
+      const cs = startDate < weekStart ? weekStart : startDate
+      const ce = endDate > weekEnd ? weekEnd : endDate
+      const sc = week.findIndex(d => isoDate(d) === cs)
+      const ec = week.findIndex(d => isoDate(d) === ce)
+      bars.push({ ev, startCol: sc < 0 ? 0 : sc, endCol: ec < 0 ? 6 : ec })
+    } else {
+      const ds = new Date(ev.start).toLocaleDateString('en-CA', { timeZone: TZ })
+      if (ds >= weekStart && ds <= weekEnd) {
+        if (!dots.has(ds)) dots.set(ds, [])
+        dots.get(ds)!.push(ev)
+      }
+    }
+  }
+
+  const visibleBars = bars.slice(0, MAX_BARS)
+  const numBarRows = visibleBars.length
+  const barsH = numBarRows * (BAR_H + BAR_GAP)
+  const cellPT = DAY_NUM_H + barsH + (numBarRows > 0 ? 4 : 0)
+
+  return (
+    <div style={{ flex: 1, position: 'relative', minHeight: 0, display: 'grid', gridTemplateColumns: 'repeat(7,1fr)' }}>
+      {week.map((day, i) => {
+        const ds = isoDate(day)
+        const isToday = ds === todayStr
+        const inMonth = day.getMonth() === month
+        const isFirst = day.getDate() === 1
+        const dayEvs = dots.get(ds) ?? []
+        return (
+          <div key={i} style={{ borderRight: 'var(--border)', borderBottom: 'var(--border)',
+            position: 'relative', paddingTop: cellPT, paddingLeft: 'var(--space-3)',
+            paddingRight: 'var(--space-3)', paddingBottom: 'var(--space-3)',
+            background: isToday ? 'var(--fill)' : 'transparent',
+            opacity: inMonth ? 1 : 0.34, overflow: 'hidden', minHeight: 0 }}>
+            {/* Day number */}
+            <div style={{ position: 'absolute', top: 'var(--space-3)', left: 'var(--space-3)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+              <span style={isToday
+                ? { fontFamily: 'var(--font-display)', fontSize: 'var(--t-h3)', lineHeight: 1,
+                    width: '1.5em', height: '1.5em', borderRadius: 'var(--radius-pill)',
+                    background: 'var(--invert-bg)', color: 'var(--invert-fg)',
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontVariantNumeric: 'lining-nums' }
+                : { fontFamily: 'var(--font-display)', fontSize: 'var(--t-h3)', lineHeight: 1, fontVariantNumeric: 'lining-nums' }}>
+                {day.getDate()}
+              </span>
+              {isFirst && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-label)', letterSpacing: 'var(--track-cap)', textTransform: 'uppercase', color: 'var(--ink-3)' }}>{MONTH_SHORT[month]}</span>}
+            </div>
+            {/* Single-day events */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+              {dayEvs.slice(0, 3).map((ev, j) => (
+                <div key={j} onClick={() => onEventClick(ev)}
+                  style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', minWidth: 0, cursor: 'pointer' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: 'var(--radius-pill)', background: ev.calendarColor, flexShrink: 0, transform: 'translateY(-1px)' }} />
+                  <span title={ev.title} style={{ fontFamily: 'var(--font-text)', fontSize: 'var(--t-small)', lineHeight: 1.25, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.title}</span>
+                </div>
+              ))}
+              {dayEvs.length > 3 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-label)', letterSpacing: '0.04em', color: 'var(--ink-3)', paddingLeft: 'calc(6px + var(--space-2))' }}>+{dayEvs.length - 3} more</span>}
+            </div>
+          </div>
+        )
+      })}
+      {/* Multi-day bars */}
+      {visibleBars.length > 0 && (
+        <div style={{ position: 'absolute', top: DAY_NUM_H, left: 0, right: 0,
+          display: 'grid', gridTemplateColumns: 'repeat(7,1fr)',
+          gridAutoRows: `${BAR_H}px`, gap: `${BAR_GAP}px 0`, padding: '0 2px', pointerEvents: 'none' }}>
+          {visibleBars.map(({ ev, startCol, endCol }, idx) => (
+            <div key={ev.id} onClick={() => onEventClick(ev)}
+              style={{ gridColumn: `${startCol + 1} / ${endCol + 2}`, gridRow: idx + 1,
+                background: ev.calendarColor, borderRadius: 3, padding: '0 6px',
+                color: 'white', fontFamily: 'var(--font-text)', fontSize: 11, lineHeight: `${BAR_H}px`,
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                cursor: 'pointer', pointerEvents: 'all' }}>
+              {ev.title}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Calendar month grid
+// ─────────────────────────────────────────────────────────────
+function CalendarMonth({ viewDate, todayStr, events, onEventClick }: {
+  viewDate: Date; todayStr: string; events: CalendarEvent[]
+  onEventClick: (ev: CalendarEvent) => void
+}) {
   const year = viewDate.getFullYear()
   const month = viewDate.getMonth()
   const weeks = buildWeeks(year, month)
-
-  const byDay = new Map<string, CalendarEvent[]>()
-  for (const ev of events) {
-    const ds = new Date(ev.start).toLocaleDateString('en-CA', { timeZone: TZ })
-    if (!byDay.has(ds)) byDay.set(ds, [])
-    byDay.get(ds)!.push(ev)
-  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -180,40 +349,10 @@ function CalendarMonth({ viewDate, todayStr, events }: { viewDate: Date; todaySt
           <div key={d} style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-label)', letterSpacing: 'var(--track-label)', textTransform: 'uppercase', color: 'var(--ink-3)', padding: '0 var(--space-3)' }}>{d}</div>
         ))}
       </div>
-      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gridAutoRows: '1fr', borderTop: 'var(--border)', borderLeft: 'var(--border)' }}>
-        {weeks.flat().map((day, i) => {
-          const ds = isoDate(day)
-          const isToday = ds === todayStr
-          const inMonth = day.getMonth() === month
-          const dayEvs = byDay.get(ds) ?? []
-          const isFirst = day.getDate() === 1
-          return (
-            <div key={i} style={{ borderRight: 'var(--border)', borderBottom: 'var(--border)',
-              padding: 'var(--space-3)', display: 'flex', flexDirection: 'column', gap: 'var(--space-2)',
-              background: isToday ? 'var(--fill)' : 'transparent', opacity: inMonth ? 1 : 0.34, overflow: 'hidden', minHeight: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                <span style={isToday
-                  ? { fontFamily: 'var(--font-display)', fontSize: 'var(--t-h3)', lineHeight: 1,
-                      width: '1.5em', height: '1.5em', borderRadius: 'var(--radius-pill)',
-                      background: 'var(--invert-bg)', color: 'var(--invert-fg)',
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontVariantNumeric: 'lining-nums' }
-                  : { fontFamily: 'var(--font-display)', fontSize: 'var(--t-h3)', lineHeight: 1, fontVariantNumeric: 'lining-nums' }}>
-                  {day.getDate()}
-                </span>
-                {isFirst && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-label)', letterSpacing: 'var(--track-cap)', textTransform: 'uppercase', color: 'var(--ink-3)' }}>{MONTH_SHORT[month]}</span>}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
-                {dayEvs.slice(0,3).map((ev, j) => (
-                  <div key={j} style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', minWidth: 0 }}>
-                    <span style={{ width: 6, height: 6, borderRadius: 'var(--radius-pill)', background: ev.calendarColor, flexShrink: 0, transform: 'translateY(-1px)' }} />
-                    <span title={ev.title} style={{ fontFamily: 'var(--font-text)', fontSize: 'var(--t-small)', lineHeight: 1.25, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.title}</span>
-                  </div>
-                ))}
-                {dayEvs.length > 3 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-label)', letterSpacing: '0.04em', color: 'var(--ink-3)', paddingLeft: 'calc(6px + var(--space-2))' }}>+{dayEvs.length - 3} more</span>}
-              </div>
-            </div>
-          )
-        })}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderTop: 'var(--border)', borderLeft: 'var(--border)' }}>
+        {weeks.map((week, wi) => (
+          <CalendarWeekRow key={wi} week={week} month={month} todayStr={todayStr} events={events} onEventClick={onEventClick} />
+        ))}
       </div>
     </div>
   )
@@ -528,6 +667,7 @@ export default function DisplayClient() {
   const [editingDinner, setEditingDinner] = useState(false)
   const [theme, setTheme] = useState<Theme>('night')
   const [monthOffset, setMonthOffset] = useState(0)
+  const [popupEvent, setPopupEvent] = useState<CalendarEvent | null>(null)
 
   // Sync theme from/to localStorage + html attr
   useEffect(() => {
@@ -648,9 +788,11 @@ export default function DisplayClient() {
 
         {/* Calendar grid */}
         <div style={{ flex: 1, minHeight: 0 }}>
-          <CalendarMonth viewDate={viewDate} todayStr={todayStr} events={events} />
+          <CalendarMonth viewDate={viewDate} todayStr={todayStr} events={events} onEventClick={setPopupEvent} />
         </div>
       </main>
+
+      {popupEvent && <EventPopup event={popupEvent} onClose={() => setPopupEvent(null)} />}
 
       {editingDinner && mealPlan && (
         <WeeklyMealEditor
