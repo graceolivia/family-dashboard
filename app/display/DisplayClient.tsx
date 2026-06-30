@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import type { CSSProperties } from 'react'
-import type { CalendarEvent, WeatherData, GroceryItem, MealPlan } from '@/types'
+import type { CalendarEvent, WeatherData, MealPlan } from '@/types'
 
 const TZ = process.env.NEXT_PUBLIC_TZ_NAME ?? 'America/New_York'
 type Theme = 'day' | 'night'
@@ -20,7 +20,6 @@ const PATHS: Record<string, React.ReactNode> = {
   sunset: (<><path d="M12 8V3M8.5 4.5 12 8l3.5-3.5M3 19h18M5 15a7 7 0 0 1 14 0"/></>),
   droplet: <path d="M12 3s6 6.2 6 10.2A6 6 0 1 1 6 13.2C6 9.2 12 3 12 3Z"/>,
   utensils: (<><path d="M5 3v7a2 2 0 0 0 4 0V3M7 11v10"/><path d="M17 3c-1.8 0-3 2.2-3 5s1.2 4 3 4v9"/></>),
-  cart: (<><circle cx="9" cy="20" r="1.4"/><circle cx="17" cy="20" r="1.4"/><path d="M2 3h2l2.2 12.2a1.5 1.5 0 0 0 1.5 1.3h9.1a1.5 1.5 0 0 0 1.5-1.2L20 7H5"/></>),
   check: <path d="m5 12 4.5 4.5L19 7"/>,
   chevronLeft: <path d="m15 5-7 7 7 7"/>,
   chevronRight: <path d="m9 5 7 7-7 7"/>,
@@ -579,45 +578,6 @@ function MealCard({ dinner, onTap }: { dinner: string; onTap: () => void }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Grocery list
-// ─────────────────────────────────────────────────────────────
-function GroceryList({ items, onToggle }: { items: GroceryItem[]; onToggle: (id: string, checked: boolean) => void }) {
-  const sorted = [...items.filter(i => !i.checked), ...items.filter(i => i.checked)].slice(0, 10)
-  return (
-    <section>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
-        <Icon name="cart" size={14} style={{ color: 'var(--ink-3)' }} />
-        <Eyebrow>Grocery</Eyebrow>
-      </div>
-      {items.length === 0
-        ? <p style={{ fontFamily: 'var(--font-display)', fontStyle: 'italic', fontSize: 'var(--t-lead)', color: 'var(--ink-3)', margin: 0 }}>List is empty</p>
-        : (
-          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-            {sorted.map(item => (
-              <li key={item.id}>
-                <button onClick={() => onToggle(item.id, !item.checked)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', width: '100%', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left' }}>
-                  <span style={{ width: 20, height: 20, flexShrink: 0, borderRadius: 'var(--radius-sm)', border: '1px solid var(--line-strong)',
-                    background: item.checked ? 'var(--invert-bg)' : 'transparent', color: 'var(--invert-fg)',
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    transition: `background var(--dur) var(--ease)` }}>
-                    {item.checked && <Icon name="check" size={13} sw={2} />}
-                  </span>
-                  <span style={{ fontFamily: 'var(--font-text)', fontSize: 'var(--t-lead)', color: item.checked ? 'var(--ink-3)' : 'var(--ink)', textDecoration: item.checked ? 'line-through' : 'none', textDecorationThickness: '1px' }}>
-                    {item.text}
-                  </span>
-                </button>
-              </li>
-            ))}
-            {items.length > 10 && <li style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-label)', color: 'var(--ink-3)' }}>+{items.length - 10} more on /manage</li>}
-          </ul>
-        )
-      }
-    </section>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────
 // Theme toggle
 // ─────────────────────────────────────────────────────────────
 function ThemeToggle({ theme, onChange }: { theme: Theme; onChange: (t: Theme) => void }) {
@@ -834,7 +794,6 @@ export default function DisplayClient() {
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [dinner, setDinner] = useState('')
   const [mealPlan, setMealPlan] = useState<MealPlan | null>(null)
-  const [grocery, setGrocery] = useState<GroceryItem[]>([])
   const [editingDinner, setEditingDinner] = useState(false)
   const [theme, setTheme] = useState<Theme>('night')
   const [calView, setCalView] = useState<'month' | 'week'>('week')
@@ -891,18 +850,14 @@ export default function DisplayClient() {
       if (r.ok) { const d = await r.json(); setMealPlan(d); setDinner(d.today ?? '') }
     } catch { /* no-op */ }
   }, [])
-  const fetchGrocery = useCallback(async () => {
-    try { const r = await fetch('/api/grocery'); if (r.ok) setGrocery(await r.json()) } catch { /* no-op */ }
-  }, [])
 
-  useEffect(() => { fetchWeather(); fetchCalendar(); fetchMeals(); fetchGrocery() }, [fetchWeather, fetchCalendar, fetchMeals, fetchGrocery])
+  useEffect(() => { fetchWeather(); fetchCalendar(); fetchMeals() }, [fetchWeather, fetchCalendar, fetchMeals])
   useEffect(() => {
     const w = setInterval(fetchWeather, 10 * 60 * 1000)
     const c = setInterval(fetchCalendar, 10 * 60 * 1000)
     const m = setInterval(fetchMeals, 60 * 1000)
-    const g = setInterval(fetchGrocery, 60 * 1000)
-    return () => { clearInterval(w); clearInterval(c); clearInterval(m); clearInterval(g) }
-  }, [fetchWeather, fetchCalendar, fetchMeals, fetchGrocery])
+    return () => { clearInterval(w); clearInterval(c); clearInterval(m) }
+  }, [fetchWeather, fetchCalendar, fetchMeals])
 
   const todayStr = now.toLocaleDateString('en-CA', { timeZone: TZ })
   const todayDayName = now.toLocaleDateString('en-US', { weekday: 'long', timeZone: TZ }).toLowerCase()
@@ -923,11 +878,6 @@ export default function DisplayClient() {
     : `${MONTH_SHORT[weekFirst.getMonth()]} ${weekFirst.getDate()} – ${MONTH_SHORT[weekLast.getMonth()]} ${weekLast.getDate()}`
   const weekYear = weekLast.getFullYear()
 
-  const toggleGrocery = async (id: string, checked: boolean) => {
-    setGrocery(prev => prev.map(i => i.id === id ? { ...i, checked } : i))
-    await fetch('/api/grocery', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, checked }) })
-  }
-
   const navBtn: CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 38, height: 38, borderRadius: 'var(--radius-pill)', border: 'var(--border)', background: 'transparent', color: 'var(--ink-2)', cursor: 'pointer' }
 
   return (
@@ -940,8 +890,6 @@ export default function DisplayClient() {
         <AgendaList events={todayEvents} />
         <div style={{ flex: 1 }} />
         <MealCard dinner={dinner} onTap={() => setEditingDinner(true)} />
-        <Divider />
-        <GroceryList items={grocery} onToggle={toggleGrocery} />
       </aside>
 
       {/* ── Main ── */}

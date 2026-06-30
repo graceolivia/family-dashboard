@@ -34,9 +34,3 @@ export interface MealPlan {
   mealOverrides: Record<string, string>  // ISO date → meal
   today: string                          // resolved dinner for today
 }
-
-export interface GroceryItem {
-  id: string
-  text: string
-  checked: boolean
-}
