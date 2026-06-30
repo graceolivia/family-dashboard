@@ -9,6 +9,17 @@ function isAllDay(d: Date): boolean {
   return !!(d as unknown as { dateOnly?: boolean }).dateOnly
 }
 
+// node-ical parses DTSTART;VALUE=DATE:20260701 as new Date(2026, 6, 1) — local midnight.
+// Calling .toISOString() converts to UTC, which shifts the date backward in negative-offset
+// timezones (e.g. America/New_York). Anchor to noon UTC using local date parts instead so
+// toLocaleDateString() on the client always lands on the right calendar date.
+function serializeAllDayDate(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}T12:00:00.000Z`
+}
+
 export async function GET() {
   const rawUrls = process.env.ICS_URLS ?? ''
   if (!rawUrls.trim()) return NextResponse.json({ events: [] })
@@ -63,12 +74,13 @@ export async function GET() {
                   : 60 * 60 * 1000
               const end = new Date(date.getTime() + baseDuration)
 
+              const recAllDay = isAllDay(date)
               allEvents.push({
                 id: `${event.uid ?? key}-${dateKey}`,
                 title,
-                start: date.toISOString(),
-                end: end.toISOString(),
-                allDay: isAllDay(date),
+                start: recAllDay ? serializeAllDayDate(date) : date.toISOString(),
+                end: recAllDay ? serializeAllDayDate(end) : end.toISOString(),
+                allDay: recAllDay,
                 calendarIndex: idx,
                 calendarLabel: label,
                 calendarColor: color,
@@ -79,12 +91,13 @@ export async function GET() {
             const start = event.start as Date
             const end = event.end as Date
             if (start <= windowEnd && end >= windowStart) {
+              const allDay = isAllDay(start)
               allEvents.push({
                 id: event.uid ?? key,
                 title: typeof event.summary === 'string' ? event.summary : (event.summary as { val: string }).val,
-                start: start.toISOString(),
-                end: end.toISOString(),
-                allDay: isAllDay(start),
+                start: allDay ? serializeAllDayDate(start) : start.toISOString(),
+                end: allDay ? serializeAllDayDate(end) : end.toISOString(),
+                allDay,
                 calendarIndex: idx,
                 calendarLabel: label,
                 calendarColor: color,
